@@ -18,29 +18,30 @@ PAPER_DIR = PROJECT_ROOT / "paper" / "tables"
 def load_circuit_metrics(filepath: Path | None = None) -> pd.DataFrame:
     """Load circuit performance metrics CSV.
 
-    Args:
-        filepath: Path to circuit_metrics.csv
-
-    Returns:
-        DataFrame with circuit metrics
+    Normalises column names from run_cmos_timing.py output:
+      tpd_ps → tpd_avg_ps, power_uW → dynamic_power_uW, pdp_fJ → PDP_fJ
     """
     if filepath is None:
         filepath = PROCESSED_DIR / "circuit_metrics.csv"
-    return pd.read_csv(filepath)
+    df = pd.read_csv(filepath)
+    df = df.rename(columns={
+        "tpd_ps":   "tpd_avg_ps",
+        "power_uW": "dynamic_power_uW",
+        "pdp_fJ":   "PDP_fJ",
+    })
+    return df
 
 
 def load_error_metrics(filepath: Path | None = None) -> pd.DataFrame:
     """Load error metrics CSV.
 
-    Args:
-        filepath: Path to error_metrics.csv
-
-    Returns:
-        DataFrame with error metrics
+    Normalises circuit key 'ama5_8bit_k4' → 'ama5_8bit' for consistent merging.
     """
     if filepath is None:
         filepath = PROCESSED_DIR / "error_metrics.csv"
-    return pd.read_csv(filepath)
+    df = pd.read_csv(filepath)
+    df["circuit"] = df["circuit"].replace({"ama5_8bit_k4": "ama5_8bit"})
+    return df
 
 
 def load_mc_statistics(filepath: Path | None = None) -> pd.DataFrame:
@@ -100,15 +101,19 @@ def _format_sci(val, precision: int = 2) -> str:
 
 # Display names for circuits (both error-metrics keys and MC JSON keys)
 CIRCUIT_DISPLAY_NAMES = {
-    # Behavioural / error-metrics keys
-    "exact_adder_8bit": "Exact RCA",
-    "loa8_k4":          "LOA (k=4)",
-    "heaa8_k4":         "HEAA (k=4)",
-    "ama5_8bit_k4":     "AMA5 (k=4)",
-    "fefet_loa8_k4":    "FeFET-LOA",
-    "fefet_heaa8_k4":   "FeFET-HEAA",
-    "exact_mul_4bit":   "Exact Mul",
-    "bam4x4_v2":        "BAM (v=2)",
+    # circuit_metrics.csv keys
+    "rca8_exact":       "Exact RCA-8",
+    "mul4x4_exact":     r"Exact Mul $4{\times}4$",
+    "loa8_k4":          "LOA-8 (k=4)",
+    "heaa8_k4":         "HEAA-8 (k=4)",
+    "ama5_8bit":        "AMA5-8 (k=4)",
+    "bam4x4_v2":        r"BAM $4{\times}4$ (v=2)",
+    # Legacy / error-metrics keys
+    "exact_adder_8bit": "Exact RCA-8",
+    "ama5_8bit_k4":     "AMA5-8 (k=4)",
+    "fefet_loa8_k4":    "FeFET-LOA (k=4)",
+    "fefet_heaa8_k4":   "FeFET-HEAA (k=4)",
+    "exact_mul_4bit":   r"Exact Mul $4{\times}4$",
     # MC JSON circuit keys
     "mc_fefet_loa8":    "FeFET-LOA (k=4)",
     "mc_fefet_heaa8":   "FeFET-HEAA (k=4)",
@@ -145,14 +150,32 @@ def generate_table_ii(
     else:
         df = circuit_metrics
 
+    # Preferred display order for the paper
+    CIRCUIT_ORDER = [
+        "rca8_exact", "loa8_k4", "heaa8_k4", "ama5_8bit",
+        "mul4x4_exact", "bam4x4_v2",
+    ]
+    # Approximate transistor counts (area proxy)
+    TRANSISTOR_COUNT = {
+        "rca8_exact":   224,   # 8 × 28T FA
+        "loa8_k4":      142,   # 4×6T OR + 1×6T AND + 4×28T FA
+        "heaa8_k4":     156,   # 3×6T OR + 1×6T AND + 1×8T MUX + 4×28T FA + extra INV
+        "ama5_8bit":    112,   # 4×28T FA (lower 4 bits are wires)
+        "mul4x4_exact": 296,   # 16×6T AND + partial product adder tree (~200T)
+        "bam4x4_v2":    224,   # approximate multiplier (fewer exact cells)
+    }
+    df["_order"] = df["circuit"].map({k: i for i, k in enumerate(CIRCUIT_ORDER)})
+    df = df.sort_values("_order", na_position="last").drop(columns="_order")
+    df["transistors"] = df["circuit"].map(TRANSISTOR_COUNT)
+
     lines = [
         r"\begin{table}[t]",
         r"\centering",
-        r"\caption{Circuit Performance and Error Metrics Comparison}",
+        r"\caption{CMOS 45nm Circuit Performance and Error Metrics}",
         r"\label{tab:comparison}",
-        r"\begin{tabular}{lrrrrr}",
+        r"\begin{tabular}{lrrrrrr}",
         r"\toprule",
-        r"Design & Power ($\mu$W) & Delay (ps) & PDP (fJ) & NMED & MRED \\",
+        r"Design & $T$ & Power ($\mu$W) & Delay (ps) & PDP (fJ) & NMED & MRED \\",
         r"\midrule",
     ]
 
@@ -160,6 +183,8 @@ def generate_table_ii(
         circuit = row.get("circuit", "")
         display_name = CIRCUIT_DISPLAY_NAMES.get(circuit, _escape_latex(circuit))
 
+        transistors = row.get("transistors")
+        t_str = str(int(transistors)) if not pd.isna(transistors) else "--"
         power = _format_value(row.get("dynamic_power_uW"), ".2f")
         delay = _format_value(row.get("tpd_avg_ps"), ".1f")
         pdp = _format_value(row.get("PDP_fJ"), ".3f")
@@ -167,7 +192,7 @@ def generate_table_ii(
         mred_val = _format_sci(row.get("MRED"), 4)
 
         lines.append(
-            f"{display_name} & {power} & {delay} & {pdp} & {nmed_val} & {mred_val} \\\\"
+            f"{display_name} & {t_str} & {power} & {delay} & {pdp} & {nmed_val} & {mred_val} \\\\"
         )
 
     lines.extend([

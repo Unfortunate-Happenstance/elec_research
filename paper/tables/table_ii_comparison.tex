@@ -1,19 +1,17 @@
 \begin{table}[t]
 \centering
-\caption{Circuit Performance and Error Metrics Comparison}
+\caption{CMOS 45nm Circuit Performance and Error Metrics}
 \label{tab:comparison}
-\begin{tabular}{lrrrrr}
+\begin{tabular}{lrrrrrr}
 \toprule
-Design & Power ($\mu$W) & Delay (ps) & PDP (fJ) & NMED & MRED \\
+Design & $T$ & Power ($\mu$W) & Delay (ps) & PDP (fJ) & NMED & MRED \\
 \midrule
-AMA5 (k=4) & -- & -- & -- & 0.0078 & 0.0216 \\
-BAM (v=2) & -- & -- & -- & 0.0049 & 0.0711 \\
-Exact RCA & -- & -- & -- & -- & -- \\
-Exact Mul & -- & -- & -- & -- & -- \\
-FeFET-HEAA & -- & -- & -- & -- & -- \\
-FeFET-LOA & -- & -- & -- & -- & -- \\
-HEAA (k=4) & -- & -- & -- & 0.0034 & 0.0092 \\
-LOA (k=4) & -- & -- & -- & 0.0056 & 0.0149 \\
+Exact RCA-8 & 224 & 2.43 & 181.4 & 0.441 & -- & -- \\
+LOA-8 (k=4) & 142 & 1.29 & 107.8 & 0.140 & 0.0056 & 0.0149 \\
+HEAA-8 (k=4) & 156 & 1.39 & 113.9 & 0.158 & 0.0034 & 0.0092 \\
+AMA5-8 (k=4) & 112 & 1.22 & 88.9 & 0.108 & 0.0078 & 0.0216 \\
+Exact Mul $4{\times}4$ & 296 & 587.58 & 98.1 & 57.648 & -- & -- \\
+BAM $4{\times}4$ (v=2) & 224 & 385.56 & 95.3 & 36.729 & 0.0049 & 0.0711 \\
 \bottomrule
 \end{tabular}
 \end{table}

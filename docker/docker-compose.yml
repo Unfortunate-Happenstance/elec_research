@@ -1,0 +1,17 @@
+services:
+  ngspice:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    platform: linux/amd64
+    container_name: ngspice-sim
+    volumes:
+      - ../:/workspace
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+          cpus: '8'

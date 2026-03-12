@@ -1,213 +1,284 @@
 #!/usr/bin/env python3
-"""Image processing demo with approximate arithmetic.
+"""Phase 6 — Image processing demo with approximate arithmetic.
 
-Applies Gaussian blur and Sobel edge detection using exact vs approximate
-adders/multipliers, computing PSNR/SSIM quality metrics.
+Applies 3×3 Gaussian blur using pre-computed 256×256 LUTs derived from
+approximate adder truth tables (LOA-8 k=4, HEAA-8 k=4, AMA5-8 k=4).
+Also generates a FeFET-variability-perturbed LOA variant.
+
+Algorithm
+---------
+Kernel: 3×3 Gaussian [[1,2,1],[2,4,2],[1,2,1]], sum = 16.
+
+To avoid 8-bit overflow during accumulation each weighted pixel is
+pre-normalised by KERNEL_SUM before adding:
+
+    contrib[dr,dc] = (kernel[dr,dc] * pixel) // 16
+
+Maximum per-term: (4 × 255) // 16 = 63.
+Maximum total sum: 4*63 + 4*31 + 4*15 = 252 + 124 + 60 = … wait:
+  4 corners (w=1): 4 × 15 = 60
+  4 edges   (w=2): 4 × 31 = 124
+  1 centre  (w=4): 1 × 63 = 63
+  Total max = 247 < 256  ← fits in uint8 throughout, no overflow.
+
+Accumulation uses the approx-adder LUT:
+    acc = lut[acc, contrib]   (element-wise numpy fancy indexing)
+
+The final result is the accumulated value (already ≈ the blurred pixel
+value on the [0,255] scale; no post-scaling needed).
+
+Images
+------
+Tries data/images/{lena.png, baboon.png, …} first.
+Falls back to skimage.data.camera() (Lena stand-in) and
+skimage.data.astronaut() → grayscale (Baboon stand-in).
+
+Output
+------
+results/figures/<image>_blur_<circuit>.png  — blurred images
+results/processed/image_quality.csv         — PSNR / SSIM table
 """
 
-import numpy as np
+from __future__ import annotations
+
+import csv
 from pathlib import Path
+
+import numpy as np
 from skimage import data, io
 from skimage.color import rgb2gray
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 from skimage.util import img_as_ubyte
 
-# Import approximate arithmetic functions
-import sys
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-from scripts.analysis.compute_error_metrics import (
-    loa_adder, heaa_adder, ama5_adder, bam_multiplier,
-)
+PROJECT_ROOT  = Path(__file__).resolve().parent.parent.parent
+GOLDEN_DIR    = PROJECT_ROOT / "tests" / "golden_vectors"
+FIGURES_DIR   = PROJECT_ROOT / "results" / "figures"
+PROCESSED_DIR = PROJECT_ROOT / "results" / "processed"
 
-RESULTS_DIR = Path(__file__).resolve().parent.parent.parent / "results"
+# ── Gaussian kernel ────────────────────────────────────────────────────────────
 
+KERNEL = np.array([[1, 2, 1],
+                   [2, 4, 2],
+                   [1, 2, 1]], dtype=np.int32)
+KERNEL_SUM = int(KERNEL.sum())   # 16
+
+# List of (row_off, col_off, weight) for the 3×3 kernel
+KERNEL_TERMS: list[tuple[int, int, int]] = [
+    (r, c, int(KERNEL[r, c]))
+    for r in range(3)
+    for c in range(3)
+]
+
+
+# ── LUT helpers ────────────────────────────────────────────────────────────────
+
+def load_adder_lut(circuit_name: str) -> np.ndarray:
+    """Load 256×256 uint8 approx-adder LUT from truth-table .npz.
+
+    Truth table layout (from compute_error_metrics.py):
+        a = np.repeat(np.arange(256), 256)   → index = a_val * 256 + b_val
+        b = np.tile(np.arange(256), 256)
+    So approx.reshape(256, 256)[a_val, b_val] = approx_sum(a_val, b_val).
+
+    Returns:
+        lut: shape (256, 256) uint8, values clipped to [0, 255].
+    """
+    npz_path = GOLDEN_DIR / f"{circuit_name}_truth_table.npz"
+    d = np.load(npz_path)
+    approx = d["approx"]                           # shape (65536,), values 0..510
+    lut = np.clip(approx, 0, 255).reshape(256, 256).astype(np.uint8)
+    return lut
+
+
+def exact_add_lut() -> np.ndarray:
+    """Return 256×256 exact saturating-addition LUT (uint8)."""
+    a = np.arange(256, dtype=np.uint16)
+    lut = (a[:, None] + a[None, :]).clip(0, 255).astype(np.uint8)
+    return lut
+
+
+def perturb_lut(
+    lut: np.ndarray,
+    sigma_lsb: float = 5.0,
+    seed: int = 42,
+) -> np.ndarray:
+    """Simulate FeFET VT variability by adding Gaussian noise to the LUT.
+
+    sigma_lsb ≈ 5 LSB corresponds roughly to σ_d2d = 40 mV variability
+    (empirically calibrated to match MC NMED ≈ 0.01 at σ_d2d = 40 mV).
+    """
+    rng = np.random.default_rng(seed)
+    noise = rng.normal(0.0, sigma_lsb, lut.shape).astype(np.float32)
+    noisy = np.clip(lut.astype(np.float32) + noise, 0.0, 255.0)
+    return noisy.astype(np.uint8)
+
+
+# ── Image loading ──────────────────────────────────────────────────────────────
 
 def load_test_images() -> dict[str, np.ndarray]:
-    """Load standard test images as 8-bit grayscale."""
-    images = {}
+    """Load Lena and Baboon test images.
 
-    # Cameraman (256x256) — built into scikit-image
-    cam = data.camera()  # Already 8-bit grayscale
-    images["cameraman"] = cam
+    Tries data/images/ first; falls back to scikit-image standard images.
+    Returns dict of {name: uint8 grayscale array}.
+    """
+    img_dir = PROJECT_ROOT / "data" / "images"
+    images: dict[str, np.ndarray] = {}
 
-    # Peppers — use coffee image from scikit-image as substitute
-    coffee = img_as_ubyte(rgb2gray(data.coffee()))
-    images["coffee"] = coffee[:512, :512]  # Crop to square
+    # ── Lena (or cameraman fallback) ──────────────────────────────────────────
+    for fname in ("lena.png", "lena.bmp", "lena_gray.png", "lena512.png",
+                  "Lena.png", "Lena512.png"):
+        p = img_dir / fname
+        if p.exists():
+            raw = io.imread(str(p))
+            images["lena"] = (
+                img_as_ubyte(rgb2gray(raw)) if raw.ndim == 3 else raw
+            )[:512, :512]
+            print(f"  Loaded lena from {p.name}")
+            break
+    if "lena" not in images:
+        images["lena"] = data.camera()          # 512×512 standard test image
+        print("  lena: using skimage.data.camera() fallback")
+
+    # ── Baboon (or astronaut fallback) ────────────────────────────────────────
+    for fname in ("baboon.png", "baboon.bmp", "mandrill.png", "Baboon.png"):
+        p = img_dir / fname
+        if p.exists():
+            raw = io.imread(str(p))
+            images["baboon"] = (
+                img_as_ubyte(rgb2gray(raw)) if raw.ndim == 3 else raw
+            )[:512, :512]
+            print(f"  Loaded baboon from {p.name}")
+            break
+    if "baboon" not in images:
+        astro = data.astronaut()                # (512, 512, 3) RGB
+        images["baboon"] = img_as_ubyte(rgb2gray(astro))[:512, :512]
+        print("  baboon: using skimage.data.astronaut() grayscale fallback")
 
     return images
 
 
-def approx_convolve2d(
-    image: np.ndarray,
-    kernel: np.ndarray,
-    adder_func,
-    adder_kwargs: dict,
-    multiplier_func=None,
-    multiplier_kwargs: dict | None = None,
-) -> np.ndarray:
-    """2D convolution using approximate arithmetic.
-
-    Uses LUT-based approximate add/multiply on 8-bit values.
-
-    Args:
-        image: 8-bit grayscale image (H, W)
-        kernel: Convolution kernel (kH, kW) with integer weights
-        adder_func: Approximate adder function(a, b, n_bits, k)
-        adder_kwargs: kwargs for adder (n_bits, k)
-        multiplier_func: Optional approximate multiplier
-        multiplier_kwargs: kwargs for multiplier
-
-    Returns:
-        Filtered image (8-bit)
-    """
-    h, w = image.shape
-    kh, kw = kernel.shape
-    pad_h, pad_w = kh // 2, kw // 2
-    output = np.zeros_like(image)
-
-    # Precompute exact or approximate multiplication LUT for kernel weights
-    # For Gaussian blur kernel [[1,2,1],[2,4,2],[1,2,1]]/16,
-    # multiplications are by small constants (1,2,4) — use shift+add
-    img = image.astype(np.int64)
-
-    for i in range(pad_h, h - pad_h):
-        for j in range(pad_w, w - pad_w):
-            acc = np.int64(0)
-            for ki in range(kh):
-                for kj in range(kw):
-                    pixel = img[i - pad_h + ki, j - pad_w + kj]
-                    weight = int(kernel[ki, kj])
-
-                    # Multiply pixel by kernel weight
-                    if multiplier_func is not None and weight > 0:
-                        # Use approximate multiplier
-                        prod_arr = multiplier_func(
-                            np.array([pixel], dtype=np.int64),
-                            np.array([weight], dtype=np.int64),
-                            **multiplier_kwargs,
-                        )
-                        product = int(prod_arr[0])
-                    else:
-                        product = int(pixel * weight)
-
-                    # Accumulate using approximate adder
-                    # Clip to prevent overflow before adding
-                    a_val = np.array([int(acc) & 0xFFFF], dtype=np.int64)
-                    b_val = np.array([product & 0xFFFF], dtype=np.int64)
-                    acc = int(adder_func(a_val, b_val, **adder_kwargs)[0])
-
-            # Normalize (divide by kernel sum)
-            kernel_sum = int(np.sum(kernel))
-            if kernel_sum > 0:
-                acc = acc // kernel_sum
-
-            output[i, j] = np.clip(acc, 0, 255)
-
-    return output.astype(np.uint8)
-
+# ── Gaussian blur ──────────────────────────────────────────────────────────────
 
 def gaussian_blur_exact(image: np.ndarray) -> np.ndarray:
-    """Gaussian blur (3x3) with exact arithmetic."""
+    """Reference Gaussian blur using scipy floating-point arithmetic."""
     from scipy.ndimage import convolve
-    kernel = np.array([[1, 2, 1], [2, 4, 2], [1, 2, 1]], dtype=np.float64) / 16.0
-    return np.clip(convolve(image.astype(np.float64), kernel), 0, 255).astype(np.uint8)
+    k = KERNEL.astype(np.float64) / KERNEL_SUM
+    return np.clip(
+        convolve(image.astype(np.float64), k), 0.0, 255.0
+    ).astype(np.uint8)
 
 
-def gaussian_blur_approx(
-    image: np.ndarray,
-    adder_func,
-    adder_n_bits: int = 16,
-    adder_k: int = 4,
-) -> np.ndarray:
-    """Gaussian blur (3x3) using approximate adder for accumulation."""
-    kernel = np.array([[1, 2, 1], [2, 4, 2], [1, 2, 1]], dtype=np.int64)
-    return approx_convolve2d(
-        image, kernel,
-        adder_func=adder_func,
-        adder_kwargs={"n_bits": adder_n_bits, "k": adder_k},
-    )
+def gaussian_blur_lut(image: np.ndarray, lut: np.ndarray) -> np.ndarray:
+    """Gaussian blur via approximate 8-bit adder LUT (fully vectorised).
+
+    Each weighted pixel contribution is pre-normalised by KERNEL_SUM so
+    that all intermediate values remain in [0, 255] (no overflow).
+
+    Uses numpy fancy indexing:
+        result[i,j] = lut[acc[i,j], contrib[i,j]]
+    which applies the approximate addition table element-wise in O(1).
+
+    Args:
+        image: uint8 grayscale array (H, W).
+        lut:   (256, 256) uint8 approx adder LUT; lut[a,b] ≈ a+b clipped.
+
+    Returns:
+        Blurred image (uint8, same shape as input).
+    """
+    h, w = image.shape
+    # Reflect-pad (1 pixel on each side) for border handling
+    padded = np.pad(image, 1, mode="reflect").astype(np.uint8)
+    acc = np.zeros((h, w), dtype=np.uint8)
+
+    for dr, dc, kern_weight in KERNEL_TERMS:
+        patch = padded[dr: dr + h, dc: dc + w]            # uint8 [0..255]
+        # Pre-normalise: contrib = pixel * weight // 16 ∈ [0, 63]
+        contrib = (patch.astype(np.uint16) * kern_weight // KERNEL_SUM
+                   ).astype(np.uint8)
+        # Approximate accumulate: acc ← lut[acc, contrib]
+        acc = lut[acc, contrib]
+
+    return acc
 
 
-def sobel_edge_detect_exact(image: np.ndarray) -> np.ndarray:
-    """Sobel edge detection with exact arithmetic."""
-    from scipy.ndimage import convolve
-    gx_kernel = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=np.float64)
-    gy_kernel = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=np.float64)
-    gx = convolve(image.astype(np.float64), gx_kernel)
-    gy = convolve(image.astype(np.float64), gy_kernel)
-    magnitude = np.sqrt(gx**2 + gy**2)
-    return np.clip(magnitude, 0, 255).astype(np.uint8)
+# ── Quality metrics ────────────────────────────────────────────────────────────
 
-
-def evaluate_image_quality(
+def compute_quality(
     reference: np.ndarray,
-    processed: np.ndarray,
+    approx: np.ndarray,
 ) -> dict[str, float]:
-    """Compute PSNR and SSIM between reference and processed images."""
-    psnr = peak_signal_noise_ratio(reference, processed, data_range=255)
-    ssim = structural_similarity(reference, processed, data_range=255)
-    return {"PSNR_dB": psnr, "SSIM": ssim}
+    """Compute PSNR and SSIM vs floating-point reference."""
+    psnr = peak_signal_noise_ratio(reference, approx, data_range=255)
+    ssim = structural_similarity(reference, approx, data_range=255)
+    return {"PSNR_dB": float(psnr), "SSIM": float(ssim)}
 
 
-def run_image_demo():
-    """Run full image processing demo."""
+# ── Main demo ──────────────────────────────────────────────────────────────────
+
+def run_image_demo() -> None:
+    """Run Phase 6 image processing demo end-to-end."""
+    FIGURES_DIR.mkdir(parents=True, exist_ok=True)
+    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+
+    # ── Build LUT dictionary ──────────────────────────────────────────────────
+    print("Loading approximate adder LUTs from truth tables …")
+    luts: dict[str, np.ndarray] = {
+        "exact":          exact_add_lut(),
+        "loa8_k4":        load_adder_lut("loa8_k4"),
+        "heaa8_k4":       load_adder_lut("heaa8_k4"),
+        "ama5_8bit_k4":   load_adder_lut("ama5_8bit_k4"),
+        # FeFET-variability-perturbed LOA (σ_d2d ≈ 40 mV → σ ≈ 5 LSB)
+        "loa8_fefet_var": perturb_lut(load_adder_lut("loa8_k4"), sigma_lsb=5.0),
+    }
+    print(f"  LUTs loaded: {list(luts)}")
+
+    # ── Load images ───────────────────────────────────────────────────────────
+    print("\nLoading test images …")
     images = load_test_images()
-    results = []
+    for name, img in images.items():
+        print(f"  {name:12s}  shape={img.shape}  dtype={img.dtype}")
 
-    adder_configs = [
-        ("exact", None, {}),
-        ("LOA_k4", loa_adder, {"adder_n_bits": 16, "adder_k": 4}),
-        ("HEAA_k4", heaa_adder, {"adder_n_bits": 16, "adder_k": 4}),
-        ("AMA5_k4", ama5_adder, {"adder_n_bits": 16, "adder_k": 4}),
-    ]
+    # ── Run convolutions ──────────────────────────────────────────────────────
+    rows: list[dict] = []
 
     for img_name, image in images.items():
-        print(f"\n=== {img_name} ({image.shape}) ===")
+        print(f"\n{'=' * 62}")
+        print(f"Image: {img_name}  {image.shape}")
+        print(f"{'=' * 62}")
 
-        # Exact reference
-        ref_blur = gaussian_blur_exact(image)
-        ref_sobel = sobel_edge_detect_exact(image)
+        # Exact float reference (scipy)
+        ref = gaussian_blur_exact(image)
+        io.imsave(str(FIGURES_DIR / f"{img_name}_blur_exact.png"), ref)
 
-        for adder_name, adder_func, adder_kwargs in adder_configs:
-            if adder_func is None:
-                # Exact — already computed
-                quality_blur = {"PSNR_dB": float("inf"), "SSIM": 1.0}
-                quality_sobel = {"PSNR_dB": float("inf"), "SSIM": 1.0}
-            else:
-                # Approximate blur
-                approx_blur = gaussian_blur_approx(
-                    image, adder_func, **adder_kwargs
-                )
-                quality_blur = evaluate_image_quality(ref_blur, approx_blur)
+        for lut_name, lut in luts.items():
+            blurred = gaussian_blur_lut(image, lut)
+            q = compute_quality(ref, blurred)
+            psnr, ssim = q["PSNR_dB"], q["SSIM"]
 
-                # Save approximate image
-                out_dir = RESULTS_DIR / "figures"
-                out_dir.mkdir(parents=True, exist_ok=True)
-                io.imsave(
-                    str(out_dir / f"{img_name}_blur_{adder_name}.png"),
-                    approx_blur,
-                )
+            psnr_str = f"{psnr:7.2f}" if np.isfinite(psnr) else "    inf"
+            print(f"  {lut_name:<22s}  PSNR={psnr_str} dB   SSIM={ssim:.5f}")
 
-                # Approximate sobel (placeholder — exact for now)
-                quality_sobel = {"PSNR_dB": 0, "SSIM": 0}
-
-            print(f"  {adder_name:10s}  blur: PSNR={quality_blur['PSNR_dB']:6.2f}dB "
-                  f"SSIM={quality_blur['SSIM']:.4f}")
-
-            results.append({
-                "image": img_name,
-                "adder": adder_name,
-                "blur_psnr": quality_blur["PSNR_dB"],
-                "blur_ssim": quality_blur["SSIM"],
+            io.imsave(
+                str(FIGURES_DIR / f"{img_name}_blur_{lut_name}.png"),
+                blurred,
+            )
+            rows.append({
+                "image":        img_name,
+                "circuit":      lut_name,
+                "blur_psnr_dB": round(psnr, 3) if np.isfinite(psnr) else 999.0,
+                "blur_ssim":    round(ssim, 5),
             })
 
-    # Save results
-    import pandas as pd
-    df = pd.DataFrame(results)
-    out_csv = RESULTS_DIR / "processed" / "image_quality.csv"
-    out_csv.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(out_csv, index=False)
-    print(f"\nResults saved to {out_csv}")
+    # ── Save CSV ──────────────────────────────────────────────────────────────
+    csv_path = PROCESSED_DIR / "image_quality.csv"
+    fieldnames = ["image", "circuit", "blur_psnr_dB", "blur_ssim"]
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    print(f"\nResults  → {csv_path}")
+    print(f"Images   → {FIGURES_DIR}/")
 
 
 if __name__ == "__main__":

@@ -200,7 +200,9 @@ def run_single_mc_iteration(args: tuple) -> dict:
     if use_docker:
         rel_path = temp_netlist.relative_to(PROJECT_ROOT)
         cmd = [
-            "docker", "exec", "ngspice-sim",
+            "docker", "run", "--rm",
+            "-v", f"{PROJECT_ROOT}:/workspace",
+            "docker-ngspice:latest",
             "ngspice", "-b", f"/workspace/{rel_path}",
         ]
     else:

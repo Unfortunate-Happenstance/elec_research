@@ -87,18 +87,17 @@ Mn_tg4 Sum Cinbar P vss nmos w={wn} l={lch}
 Mp_tg4 Sum Cinbar Pbar vdd pmos w={wp} l={lch}
 
 * --- COUT stage: Cout = AB + Cin*(A XOR B) ---
-* NMOS pull-down: replace A-driven transistors with FeFETs
-* a_sense drives the A-dependent paths
-Mn_c1 Cout_int a_sense vss vss nmos w={wn} l={lch}
-Mn_c2 Cout_int B Cout_int1 vss nmos w={wn} l={lch}
-Mn_c3 Cout_int1 Cin vss vss nmos w={wn} l={lch}
-Mn_c4 Cout_int P Cout_int1 vss nmos w={wn} l={lch}
-
-* PMOS pull-up
-Mp_c1 Cout_int a_sense_bar vdd vdd pmos w={wp} l={lch}
-Mp_c2 Cout_int Bbar Cout_int2 vdd pmos w={wp} l={lch}
-Mp_c3 Cout_int2 Cinbar vdd vdd pmos w={wp} l={lch}
-Mp_c4 Cout_int2 Pbar Cout_int2 vdd pmos w={wp} l={lch}
+* Corrected topology: (a_sense·B) + (Cin·P)
+* NMOS pull-down: (a_sense series B) | (Cin series P)
+Mn_ca Cout_int a_sense Cout_ab  vss nmos w={wn} l={lch}
+Mn_cb Cout_ab  B       vss      vss nmos w={wn} l={lch}
+Mn_cc Cout_int Cin     Cout_cp  vss nmos w={wn} l={lch}
+Mn_cp Cout_cp  P       vss      vss nmos w={wn} l={lch}
+* PMOS pull-up: (a_sense_bar||Bbar) series (Cinbar||Pbar)
+Mp_pa Cout_top a_sense_bar vdd      vdd pmos w={wp} l={lch}
+Mp_pb Cout_top Bbar        vdd      vdd pmos w={wp} l={lch}
+Mp_pc Cout_int Cinbar      Cout_top vdd pmos w={wp} l={lch}
+Mp_pp Cout_int Pbar        Cout_top vdd pmos w={wp} l={lch}
 
 * Output inverter for Cout
 Mp_coutinv Cout Cout_int vdd vdd pmos w={wp} l={lch}

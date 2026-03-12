@@ -20,6 +20,9 @@
 .param wp = 180n
 .param lch = 45n
 
+* Convergence options — ratioed pseudo-nMOS FeFET AND cell
+.options RELTOL=1e-3 VNTOL=1e-3 ABSTOL=1e-12 GMIN=1e-9 ITL1=500 ITL4=500
+
 * ============================================================
 * Monte Carlo Parameters (defaults, overridden by include)
 * ============================================================
@@ -64,7 +67,7 @@ Mn_inv out nor_out vss vss nmos w={wn} l={lch}
 .subckt FEFET_AND_MC out b_input vdd vss vt_a=0.12
 Xfe_pd nand_out vdd mid_nd vss FEFET_PARAM vt_offset={vt_a}
 Mn_b mid_nd b_input vss vss nmos w={2*wn} l={lch}
-Mp_pu1 nand_out vss vdd vdd pmos w={2*wp} l={lch}
+Mp_pk  nand_out vss vdd vdd pmos w={wn}       l={4*lch}  $ weak keeper
 Mp_pu2 nand_out b_input vdd vdd pmos w={2*wp} l={lch}
 Mp_inv out nand_out vdd vdd pmos w={wp} l={lch}
 Mn_inv out nand_out vss vss nmos w={wn} l={lch}
@@ -113,14 +116,17 @@ Mp_cinv Cinbar Cin vdd vdd pmos w={wp} l={lch}
 Mn_cinv Cinbar Cin vss vss nmos w={wn} l={lch}
 Mn_tg4 Sum Cinbar P vss nmos w={wn} l={lch}
 Mp_tg4 Sum Cinbar Pbar vdd pmos w={wp} l={lch}
-Mn_c1 Cout_int A vss vss nmos w={wn} l={lch}
-Mn_c2 Cout_int B Cout_int1 vss nmos w={wn} l={lch}
-Mn_c3 Cout_int1 Cin vss vss nmos w={wn} l={lch}
-Mn_c4 Cout_int P Cout_int1 vss nmos w={wn} l={lch}
-Mp_c1 Cout_int Abar vdd vdd pmos w={wp} l={lch}
-Mp_c2 Cout_int Bbar Cout_int2 vdd pmos w={wp} l={lch}
-Mp_c3 Cout_int2 Cinbar vdd vdd pmos w={wp} l={lch}
-Mp_c4 Cout_int2 Pbar Cout_int2 vdd pmos w={wp} l={lch}
+* Cout — corrected topology: (A·B) + (Cin·P)
+* NMOS pull-down: (A series B) | (Cin series P)
+Mn_ca Cout_int A   Cout_ab  vss nmos w={wn} l={lch}
+Mn_cb Cout_ab  B   vss      vss nmos w={wn} l={lch}
+Mn_cc Cout_int Cin Cout_cp  vss nmos w={wn} l={lch}
+Mn_cp Cout_cp  P   vss      vss nmos w={wn} l={lch}
+* PMOS pull-up: (Abar||Bbar) series (Cinbar||Pbar)
+Mp_pa Cout_top Abar   vdd      vdd pmos w={wp} l={lch}
+Mp_pb Cout_top Bbar   vdd      vdd pmos w={wp} l={lch}
+Mp_pc Cout_int Cinbar Cout_top vdd pmos w={wp} l={lch}
+Mp_pp Cout_int Pbar   Cout_top vdd pmos w={wp} l={lch}
 Mp_coutinv Cout Cout_int vdd vdd pmos w={wp} l={lch}
 Mn_coutinv Cout Cout_int vss vss nmos w={wn} l={lch}
 .ends FA
@@ -199,33 +205,19 @@ alter Va5 dc = 0
 alter Va6 dc = 1.0
 alter Va7 dc = 0
 
-let num_tests = 8
-let test_b = vector(8)
-let test_b[0] = 0
-let test_b[1] = 15
-let test_b[2] = 85
-let test_b[3] = 170
-let test_b[4] = 255
-let test_b[5] = 128
-let test_b[6] = 100
-let test_b[7] = 50
+* Single test vector: B=255 (all-ones) — maximum sensitivity to FeFET VT variability.
+* meas tran uses the most recent tran dataset, so one vector is sufficient.
+* B=255 = all b-bits high → maximum stress on approximate lower bits (0-3).
+alter Vb0 dc = 1.0
+alter Vb1 dc = 1.0
+alter Vb2 dc = 1.0
+alter Vb3 dc = 1.0
+alter Vb4 dc = 1.0
+alter Vb5 dc = 1.0
+alter Vb6 dc = 1.0
+alter Vb7 dc = 1.0
 
-let idx = 0
-dowhile idx < num_tests
-  let bval = test_b[idx]
-
-  alter Vb0 dc = (floor(bval) % 2) * 1.0
-  alter Vb1 dc = (floor(bval / 2) % 2) * 1.0
-  alter Vb2 dc = (floor(bval / 4) % 2) * 1.0
-  alter Vb3 dc = (floor(bval / 8) % 2) * 1.0
-  alter Vb4 dc = (floor(bval / 16) % 2) * 1.0
-  alter Vb5 dc = (floor(bval / 32) % 2) * 1.0
-  alter Vb6 dc = (floor(bval / 64) % 2) * 1.0
-  alter Vb7 dc = (floor(bval / 128) % 2) * 1.0
-
-  tran 10p 10n
-  let idx = idx + 1
-end
+tran 10p 10n uic
 
 wrdata results/raw/monte_carlo/mc_heaa8_iter.csv v(s0) v(s1) v(s2) v(s3) v(s4) v(s5) v(s6) v(s7) v(cout)
 

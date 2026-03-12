@@ -30,6 +30,9 @@
 .param wp = 180n   $ PMOS width
 .param lch = 45n    $ Channel length
 
+* Convergence options — ratioed pseudo-nMOS FeFET AND cell
+.options RELTOL=1e-3 VNTOL=1e-3 ABSTOL=1e-12 GMIN=1e-9 ITL1=500 ITL4=500
+
 * ============================================================
 * FeFET OR Cell (same as LOA)
 * ============================================================
@@ -54,7 +57,7 @@ Mn_inv out nor_out vss vss nmos w={wn} l={lch}
 Xfe_pd nand_out vdd mid_nd vss FEFET_PARAM vt_offset={vt_a}
 Mn_b mid_nd b_input vss vss nmos w={2*wn} l={lch}
 * Parallel pull-up
-Mp_pu1 nand_out vss vdd vdd pmos w={2*wp} l={lch}
+Mp_pk  nand_out vss vdd vdd pmos w={wn}       l={4*lch}  $ weak keeper: drive ratio ~8x vs pull-down
 Mp_pu2 nand_out b_input vdd vdd pmos w={2*wp} l={lch}
 * AND = NOT(NAND)
 Mp_inv out nand_out vdd vdd pmos w={wp} l={lch}
@@ -79,10 +82,10 @@ Mp_binv b_bar b_input vdd vdd pmos w={wp} l={lch}
 Mn_binv b_bar b_input vss vss nmos w={wn} l={lch}
 
 * TG XOR: pass B when A=0, pass Bbar when A=1
-Mn_tg1 out b_input a_sense_bar vss nmos w={wn} l={lch}
-Mp_tg1 out b_input a_sense vdd pmos w={wp} l={lch}
-Mn_tg2 out b_bar a_sense vss nmos w={wn} l={lch}
-Mp_tg2 out b_bar a_sense_bar vdd pmos w={wp} l={lch}
+Mn_tg1 out a_sense_bar b_input vss nmos w={wn} l={lch}
+Mp_tg1 out a_sense b_input vdd pmos w={wp} l={lch}
+Mn_tg2 out a_sense b_bar vss nmos w={wn} l={lch}
+Mp_tg2 out a_sense_bar b_bar vdd pmos w={wp} l={lch}
 .ends FEFET_XOR_CELL
 
 * ============================================================
@@ -120,14 +123,17 @@ Mp_cinv Cinbar Cin vdd vdd pmos w={wp} l={lch}
 Mn_cinv Cinbar Cin vss vss nmos w={wn} l={lch}
 Mn_tg4 Sum Cinbar P vss nmos w={wn} l={lch}
 Mp_tg4 Sum Cinbar Pbar vdd pmos w={wp} l={lch}
-Mn_c1 Cout_int A vss vss nmos w={wn} l={lch}
-Mn_c2 Cout_int B Cout_int1 vss nmos w={wn} l={lch}
-Mn_c3 Cout_int1 Cin vss vss nmos w={wn} l={lch}
-Mn_c4 Cout_int P Cout_int1 vss nmos w={wn} l={lch}
-Mp_c1 Cout_int Abar vdd vdd pmos w={wp} l={lch}
-Mp_c2 Cout_int Bbar Cout_int2 vdd pmos w={wp} l={lch}
-Mp_c3 Cout_int2 Cinbar vdd vdd pmos w={wp} l={lch}
-Mp_c4 Cout_int2 Pbar Cout_int2 vdd pmos w={wp} l={lch}
+* Cout — corrected topology: (A·B) + (Cin·P)
+* NMOS pull-down: (A series B) | (Cin series P)
+Mn_ca Cout_int A   Cout_ab  vss nmos w={wn} l={lch}
+Mn_cb Cout_ab  B   vss      vss nmos w={wn} l={lch}
+Mn_cc Cout_int Cin Cout_cp  vss nmos w={wn} l={lch}
+Mn_cp Cout_cp  P   vss      vss nmos w={wn} l={lch}
+* PMOS pull-up: (A||B) series (Cin||P)  [non-inverted gates — PMOS ON when signal LOW]
+Mp_pa Cout_top A   vdd      vdd pmos w={wp} l={lch}
+Mp_pb Cout_top B   vdd      vdd pmos w={wp} l={lch}
+Mp_pc Cout_int Cin Cout_top vdd pmos w={wp} l={lch}
+Mp_pp Cout_int P   Cout_top vdd pmos w={wp} l={lch}
 Mp_coutinv Cout Cout_int vdd vdd pmos w={wp} l={lch}
 Mn_coutinv Cout Cout_int vss vss nmos w={wn} l={lch}
 .ends FA

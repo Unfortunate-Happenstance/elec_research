@@ -1,9 +1,7 @@
-circuit
-exact_adder_8bit
-loa8_k4
-heaa8_k4
-ama5_8bit_k4
-fefet_loa8_k4
-fefet_heaa8_k4
-exact_mul_4bit
-bam4x4_v2
+circuit,tpd_ps,power_uW,pdp_fJ
+rca8_exact,nan,831.7656000000001,nan
+mul4x4_exact,98.09906000000001,587.4811,57.631343677766004
+loa8_k4,nan,472.1874,nan
+heaa8_k4,nan,472.2773,nan
+ama5_8bit,nan,442.9169,nan
+bam4x4_v2,95.25412,385.3025,36.7016505713

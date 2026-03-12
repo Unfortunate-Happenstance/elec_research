@@ -278,6 +278,31 @@ dowhile idx < num_tests
   let idx = idx + 1
 end
 
+* ---- Phase 3: Worst-case timing + power characterization ----
+* Step 1: settle with A=0xF, B=0x0 (product=0)
+alter Va0 dc = 1
+alter Va1 dc = 1
+alter Va2 dc = 1
+alter Va3 dc = 1
+alter Vb0 dc = 0
+alter Vb1 dc = 0
+alter Vb2 dc = 0
+alter Vb3 dc = 0
+tran 10p 5n
+
+* Step 2: trigger worst-case — B switches 0x0→0xF (p7: 0→1)
+alter Vb0 dc = 1
+alter Vb1 dc = 1
+alter Vb2 dc = 1
+alter Vb3 dc = 1
+tran 10p 5n
+meas tran tpd_rise WHEN v(p7)=0.5 RISE=1
+meas tran tpd_fall WHEN v(p7)=0.5 FALL=1
+meas tran avg_power AVG power FROM=0 TO=5n
+echo "TPD_RISE = $&tpd_rise"
+echo "TPD_FALL = $&tpd_fall"
+echo "AVG_POWER = $&avg_power"
+
 wrdata results/raw/cmos_baseline/mul4x4_exact_cmos45.csv v(p0) v(p1) v(p2) v(p3) v(p4) v(p5) v(p6) v(p7)
 .endc
 

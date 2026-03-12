@@ -1,2 +1,19 @@
 # MacOS Files
 .DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# SPICE output
+results/raw/
+*.raw
+*.log
+
+# Compiled OSDI models (regenerated via Docker)
+*.osdi
+
+# IDE
+.vscode/
+.idea/

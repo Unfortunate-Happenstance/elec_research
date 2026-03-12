@@ -104,8 +104,8 @@ def extract_circuit_body(netlist_path: Path) -> str:
             continue
 
         # Keep the top-level circuit instantiation lines
-        # (lines starting with X = subcircuit calls, C = capacitors)
-        if stripped and stripped[0] in ("x", "c"):
+        # (lines starting with X = subcircuit calls, C = capacitors, R = resistors/wires)
+        if stripped and stripped[0] in ("x", "c", "r"):
             body_lines.append(line)
             continue
 

@@ -106,6 +106,9 @@ def extract_circuit_body(netlist_path: Path) -> str:
         # Keep the top-level circuit instantiation lines
         # (lines starting with X = subcircuit calls, C = capacitors, R = resistors/wires)
         if stripped and stripped[0] in ("x", "c", "r"):
+            # Replace zero-ohm wire resistors with 1m to avoid timestep convergence failure
+            if stripped[0] == "r":
+                line = re.sub(r'\s+0\s*$', ' 1m', line)
             body_lines.append(line)
             continue
 

@@ -1,0 +1,18 @@
+\begin{table}[t]
+\centering
+\caption{Image Quality Results: Gaussian Blur via Approximate Adders}
+\label{tab:image_quality}
+\begin{tabular}{lcccc}
+\toprule
+& \multicolumn{2}{c}{\textit{Lena}} & \multicolumn{2}{c}{\textit{Baboon}} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+Circuit & PSNR (dB) & SSIM & PSNR (dB) & SSIM \\
+\midrule
+Exact (integer) & 36.52 & 0.9768 & 37.39 & 0.9864 \\
+LOA-8 (k=4) & 21.22 & 0.7607 & 23.09 & 0.8234 \\
+HEAA-8 (k=4) & 21.18 & 0.8013 & 19.35 & 0.8171 \\
+AMA5-8 (k=4) & 21.46 & 0.6796 & 23.74 & 0.8057 \\
+LOA-8 FeFET ($\sigma$=40 mV) & 21.70 & 0.5133 & 22.07 & 0.5810 \\
+\bottomrule
+\end{tabular}
+\end{table}

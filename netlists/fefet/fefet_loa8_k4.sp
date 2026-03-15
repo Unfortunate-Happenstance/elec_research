@@ -41,19 +41,16 @@
 *   FeFET replaces the A-driven NMOS/PMOS
 * ============================================================
 .subckt FEFET_OR_CELL out b_input vdd vss vt_a=0.12
-* NOR pull-up: series PMOS (both must be OFF for high)
-* FeFET PMOS for A
-Mp_a mid_pu vdd vdd vdd pmos w={wp} l={lch}
-Rpu_bias vdd mid_pu 100
-Xfe_pu nor_out vdd mid_pu2 vdd FEFET_PARAM vt_offset={vt_a}
-Rpu_fe mid_pu2 mid_pu 1
-Mp_b nor_out b_input mid_pu vdd pmos w={wp} l={lch}
-
-* NOR pull-down: parallel NMOS
-* FeFET NMOS for A (senses stored bit at read voltage)
+* NOR pull-down: FeFET(A) || NMOS(B) — parallel, same as FEFET_OR_MC
+* FeFET NMOS: ON when A=1 (LVT, gate_shifted=VDD-vt_a=0.88V > Vth)
+*             OFF when A=0 (HVT, gate_shifted=VDD-1.20=-0.20V < Vth)
 Xfe_pd nor_out vdd vss vss FEFET_PARAM vt_offset={vt_a}
 Mn_b nor_out b_input vss vss nmos w={wn} l={lch}
-
+* NOR pull-up: PMOS for B + weak PMOS keeper (no 100 Ohm resistor)
+* Mp_b: pulls nor_out HIGH when B=0 (Vgs = b_input - VDD < Vtp)
+* Mp_keep: weak always-ON keeper to define static HIGH when both pull-downs OFF
+Mp_b    nor_out b_input  vdd vdd pmos w={wp}        l={lch}
+Mp_keep nor_out nor_out  vdd vdd pmos w={wn}        l={4*lch}
 * Inverter: NOR -> OR
 Mp_inv out nor_out vdd vdd pmos w={wp} l={lch}
 Mn_inv out nor_out vss vss nmos w={wn} l={lch}

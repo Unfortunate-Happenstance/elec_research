@@ -21,21 +21,25 @@ step() {
 }
 
 # ── Monte Carlo (1000 iters each, overwrites stale results) ──────────────────
-# step "MC LOA8"   uv run python scripts/simulation/run_monte_carlo.py \
-#     --circuit netlists/monte_carlo/mc_fefet_loa8.sp   --num-fefets 5 \
-#     --workers "$WORKERS" --iterations 1000
+# LOA-8: 200 iterations, 5 FeFETs
+# uv run python scripts/simulation/run_monte_carlo.py \
+#   --circuit netlists/monte_carlo/mc_fefet_loa8.sp \
+#   --num-fefets 5 --iterations 200 --workers 12 --seed 42
 
-# step "MC HEAA8"  uv run python scripts/simulation/run_monte_carlo.py \
-#     --circuit netlists/monte_carlo/mc_fefet_heaa8.sp  --num-fefets 7 \
-#     --workers "$WORKERS" --iterations 1000
+# # HEAA-8: 50 iterations, 7 FeFETs
+# uv run python scripts/simulation/run_monte_carlo.py \
+#   --circuit netlists/monte_carlo/mc_fefet_heaa8.sp \
+#   --num-fefets 7 --iterations 50 --workers 12 --seed 42
 
-# step "MC BAM4x4" uv run python scripts/simulation/run_monte_carlo.py \
-#     --circuit netlists/monte_carlo/mc_fefet_bam4x4.sp --num-fefets 4 \
-#     --workers "$WORKERS" --iterations 1000
+# # BAM 4x4: 200 iterations, 4 FeFETs
+# uv run python scripts/simulation/run_monte_carlo.py \
+#   --circuit netlists/monte_carlo/mc_fefet_bam4x4.sp \
+#   --num-fefets 4 --iterations 200 --workers 12 --seed 42
+
 
 # ── Sigma sweep (200 iters × 5 sigma points, all circuits) ──────────────────
 step "Sigma sweep" uv run python scripts/simulation/run_sigma_sweep.py \
-    --workers "$WORKERS" --iterations 200 --no-skip
+    --workers "$WORKERS" --iterations 50 --no-skip
 
 # ── Done ─────────────────────────────────────────────────────────────────────
 osascript -e 'display notification "All simulations complete ✓" with title "FeFET Sim" sound name "Glass"' 2>/dev/null || true

@@ -122,11 +122,11 @@ Mn_ca Cout_int A   Cout_ab  vss nmos w={wn} l={lch}
 Mn_cb Cout_ab  B   vss      vss nmos w={wn} l={lch}
 Mn_cc Cout_int Cin Cout_cp  vss nmos w={wn} l={lch}
 Mn_cp Cout_cp  P   vss      vss nmos w={wn} l={lch}
-* PMOS pull-up: (Abar||Bbar) series (Cinbar||Pbar)
-Mp_pa Cout_top Abar   vdd      vdd pmos w={wp} l={lch}
-Mp_pb Cout_top Bbar   vdd      vdd pmos w={wp} l={lch}
-Mp_pc Cout_int Cinbar Cout_top vdd pmos w={wp} l={lch}
-Mp_pp Cout_int Pbar   Cout_top vdd pmos w={wp} l={lch}
+* PMOS pull-up: (A||B) series (Cin||P)  [PMOS ON when gate=LOW → correct dual of NMOS]
+Mp_pa Cout_top A   vdd      vdd pmos w={wp} l={lch}
+Mp_pb Cout_top B   vdd      vdd pmos w={wp} l={lch}
+Mp_pc Cout_int Cin Cout_top vdd pmos w={wp} l={lch}
+Mp_pp Cout_int P   Cout_top vdd pmos w={wp} l={lch}
 Mp_coutinv Cout Cout_int vdd vdd pmos w={wp} l={lch}
 Mn_coutinv Cout Cout_int vss vss nmos w={wn} l={lch}
 .ends FA
@@ -157,10 +157,10 @@ Mp_cpinv carry_prop3 carry_prop3_bar vdd vdd pmos w={wp} l={lch}
 Mn_cpinv carry_prop3 carry_prop3_bar vss vss nmos w={wn} l={lch}
 
 * c4 = carry_gen3 | carry_prop3
-Mp_or_pu1 c4_bar carry_gen3 vdd vdd pmos w={wp} l={lch}
-Mp_or_pu2 c4_bar carry_prop3 c4_mid vdd pmos w={wp} l={lch}
-Rormid c4_mid vdd 100
-Mn_or_pd1 c4_bar carry_gen3 vss vss nmos w={wn} l={lch}
+* Static CMOS NOR: both PMOS pull-ups source at VDD (parallel) — removed 100 Ohm Rormid
+Mp_or_pu1 c4_bar carry_gen3  vdd vdd pmos w={wp} l={lch}
+Mp_or_pu2 c4_bar carry_prop3 vdd vdd pmos w={wp} l={lch}
+Mn_or_pd1 c4_bar carry_gen3  vss vss nmos w={wn} l={lch}
 Mn_or_pd2 c4_bar carry_prop3 vss vss nmos w={wn} l={lch}
 Mp_c4inv c4 c4_bar vdd vdd pmos w={wp} l={lch}
 Mn_c4inv c4 c4_bar vss vss nmos w={wn} l={lch}

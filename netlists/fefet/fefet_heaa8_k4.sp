@@ -37,13 +37,13 @@
 * FeFET OR Cell (same as LOA)
 * ============================================================
 .subckt FEFET_OR_CELL out b_input vdd vss vt_a=0.12
-* Parallel pull-down: FeFET(A) || NMOS(B)
+* NOR pull-down: FeFET(A) || NMOS(B)
+* FeFET NMOS: ON when A=1 (LVT, gate_shifted=VDD-vt_a>Vth), OFF when A=0 (HVT)
 Xfe_pd nor_out vdd vss vss FEFET_PARAM vt_offset={vt_a}
 Mn_b nor_out b_input vss vss nmos w={wn} l={lch}
-* Series pull-up: PMOS(A_sense) + PMOS(B)
-* Simplified: use complementary structure
-Mp_a nor_mid vdd vdd vdd pmos w={wp} l={lch}
-Mp_b nor_out b_input nor_mid vdd pmos w={wp} l={lch}
+* NOR pull-up: PMOS(B) + weak keeper (no floating intermediate node)
+Mp_b    nor_out b_input  vdd vdd pmos w={wp}  l={lch}
+Mp_keep nor_out nor_out  vdd vdd pmos w={wn}  l={4*lch}
 * OR = NOT(NOR)
 Mp_inv out nor_out vdd vdd pmos w={wp} l={lch}
 Mn_inv out nor_out vss vss nmos w={wn} l={lch}

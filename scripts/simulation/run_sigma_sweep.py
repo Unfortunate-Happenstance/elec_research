@@ -38,8 +38,8 @@ from run_monte_carlo import run_monte_carlo  # noqa: E402
 
 SIGMA_SWEEP_DIR = PROJECT_ROOT / "results" / "raw" / "sigma_sweep"
 
-# Default σ_d2d values (V) — 5 points from 20 mV to 100 mV
-DEFAULT_SIGMA_D2D_VALUES: list[float] = [0.020, 0.040, 0.060, 0.080, 0.100]
+# Default σ_d2d values (V) — 10 points from 40 mV to 400 mV
+DEFAULT_SIGMA_D2D_VALUES: list[float] = [0.040, 0.080, 0.120, 0.160, 0.200, 0.240, 0.280, 0.320, 0.360, 0.400]
 
 # MC netlist templates → number of FeFET VT params per circuit
 CIRCUITS: list[tuple[str, int]] = [
@@ -70,7 +70,7 @@ def already_done(out_path: Path, iterations: int) -> bool:
 
 def run_sigma_sweep(
     sigma_d2d_values: list[float],
-    iterations: int = 200,
+    iterations: int = 50,
     max_workers: int = 8,
     base_seed: int = 100,
     use_docker: bool = True,
